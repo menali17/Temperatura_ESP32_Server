@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Monitoramento de Temperatura - Esp32</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <style>
+    :root {
+      --bg-body: #0f172a;
+      --bg-card: #020617;
+      --text-main: #e2e8f0;
+      --text-muted: #94a3b8;
+      --accent-ok: #16a34a;
+      --accent-warn: #dc2626;
+      --border-soft: #1e293b;
+      --button-bg: #38bdf8;
+      --button-bg-hover: #0ea5e9;
+      --button-text: #00121b;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      background: var(--bg-body);
+      color: var(--text-main);
+      margin: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      padding: 16px;
+    }
+
+    .card {
+      background: var(--bg-card);
+      padding: 24px;
+      border-radius: 14px;
+      box-shadow: 0 0 25px #00000060;
+      width: 100%;
+      max-width: 440px;
+      border: 1px solid #020617;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 1.35rem;
+      font-weight: 600;
+    }
+
+    .subtitle {
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      margin-top: 4px;
+      margin-bottom: 18px;
+    }
+
+    .metric-label {
+      font-size: 0.82rem;
+      color: var(--text-muted);
+    }
+
+    .metric-value {
+      font-size: 2.2rem;
+      font-weight: 600;
+      margin-top: 4px;
+    }
+
+    .tag {
+      display: inline-block;
+      font-size: 0.75rem;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-weight: 600;
+      margin-top: 6px;
+      border: 1px solid transparent;
+    }
+
+    .tag-ok {
+      background: rgba(22, 163, 74, 0.12);
+      color: var(--accent-ok);
+      border-color: rgba(22, 163, 74, 0.6);
+    }
+
+    .tag-warn {
+      background: rgba(220, 38, 38, 0.12);
+      color: var(--accent-warn);
+      border-color: rgba(220, 38, 38, 0.6);
+    }
+
+    .box {
+      background: #020617;
+      border: 1px solid var(--border-soft);
+      padding: 10px 12px;
+      border-radius: 10px;
+      margin-top: 12px;
+      font-size: 0.82rem;
+    }
+
+    .box-title {
+      font-weight: 600;
+      margin-bottom: 4px;
+      font-size: 0.86rem;
+    }
+
+    .kpi-line {
+      margin-top: 3px;
+      line-height: 1.4;
+    }
+
+    pre {
+      background: #020617;
+      color: var(--text-main);
+      width: 100%;
+      border: 1px solid var(--border-soft);
+      margin-top: 14px;
+      padding: 10px;
+      font-size: 0.8rem;
+      white-space: pre-wrap;
+      border-radius: 10px;
+      min-height: 170px;
+    }
+
+    button {
+      margin-top: 14px;
+      width: 100%;
+      padding: 10px;
+      border: none;
+      font-size: 0.9rem;
+      border-radius: 8px;
+      font-weight: 600;
+      cursor: pointer;
+      background: var(--button-bg);
+      color: var(--button-text);
+      transition: background 0.15s ease, transform 0.05s ease;
+    }
+
+    button:hover {
+      background: var(--button-bg-hover);
+    }
+
+    button:active {
+      transform: scale(0.99);
+    }
+
+    .button-secondary {
+      background: transparent;
+      color: var(--text-main);
+      border: 1px solid var(--border-soft);
+      margin-top: 10px;
+    }
+
+    .button-secondary:hover {
+      background: #020617;
+    }
+
+    canvas {
+      background: #020617;
+      border-radius: 8px;
+      border: 1px solid #0b1220;
+    }
+
+    .charts-container-title {
+      font-weight: 600;
+      font-size: 0.86rem;
+      margin-bottom: 6px;
+    }
+
+    .status-text {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+  </style>
+
+  <script src="/chart.umd.min.js"></script>
+</head>
+
+<body>
+  <div class="card">
+
+    <h1>Monitor CEP - Temperatura</h1>
+    <div class="subtitle">
+      NTC 10k • Cartas X (Individual) e MR
+    </div>
+
+    <div class="metric-label">Temperatura atual</div>
+    <div class="metric-value" id="tempDisplay">-- °C</div>
+    <span id="statusTag" class="tag tag-ok">Aguardando leituras</span>
+
+    <div class="box">
+      <div class="box-title">Status do sistema</div>
+      <div class="kpi-line">
+        Conexão: <span id="status">Coleta parada</span>
+      </div>
+    </div>
+
+    <button id="btnToggleColeta">Iniciar coleta</button>
+
+    <div class="box">
+      <div class="box-title">Resumo estatístico (CEP)</div>
+      <div class="kpi-line">Média (X̄): <span id="kpiMedia">--</span> °C</div>
+      <div class="kpi-line">Desvio padrão (σ): <span id="kpiDesvio">--</span> °C</div>
+      <div class="kpi-line">Cp: <span id="kpiCp">--</span> | Cpk: <span id="kpiCpk">--</span></div>
+      <div class="kpi-line">% dentro da especificação: <span id="kpiDentro">--</span>%</div>
+      <div class="kpi-line">MR médio (|Xi − Xi-1|): <span id="kpiMR">--</span> °C</div>
+      <div class="kpi-line">Situação: <span id="kpiStatus">Aguardando dados</span></div>
+    </div>
+
+    <div class="box">
+      <div class="charts-container-title">Gráficos de controle (Carta X e MR)</div>
+      <div style="margin-top:8px;">
+        <canvas id="chartX" height="180"></canvas>
+      </div>
+      <div style="margin-top:12px;">
+        <canvas id="chartMR" height="160"></canvas>
+      </div>
+      <div class="status-text">
+        Gere o relatório para atualizar limites de controle e curvas.
+      </div>
+    </div>
+
+    <button id="btnRelatorio" class="button-secondary">
+      Gerar relatório CEP
+    </button>
+
+    <pre id="relatorio"></pre>
+  </div>
+
+  <script>
+    // =======================================================
+    // Coleta de dados da ESP32
+    // =======================================================
+    const temps = [];
+    const mrs = []; // amplitudes móveis (MR)
+
+    // Limites de especificação do produto 
+    const ESPEC_MIN = 20;
+    const ESPEC_MAX = 29;
+
+    let coletando = false;
+    let intervalo = null;
+
+    // Para gráficos
+    let lastStats = null;
+    let lastMR = null;
+    let lastUCL = null;
+    let lastLCL = null;
+
+    async function atualizar() {
+      try {
+        const r = await fetch("/dados");
+        const d = await r.json();
+
+        const t = d.temp;
+        document.getElementById("tempDisplay").textContent = t.toFixed(2) + " °C";
+
+        const statusTag = document.getElementById("statusTag");
+        if (t < ESPEC_MIN || t > ESPEC_MAX) {
+          statusTag.textContent = "Fora da especificação";
+          statusTag.className = "tag tag-warn";
+        } else {
+          statusTag.textContent = "Dentro da especificação";
+          statusTag.className = "tag tag-ok";
+        }
+
+        temps.push(t);
+
+        if (temps.length > 1) {
+          const ultimo = temps[temps.length - 1];
+          const anterior = temps[temps.length - 2];
+          const mr = Math.abs(ultimo - anterior);
+          mrs.push(mr);
+        }
+
+        document.getElementById("status").textContent =
+          "Coletando (" + temps.length + " amostras)";
+
+      } catch (e) {
+        document.getElementById("status").textContent = "Falha na leitura";
+      }
+    }
+
+    document.getElementById("btnToggleColeta").onclick = () => {
+      const btn = document.getElementById("btnToggleColeta");
+      if (!coletando) {
+        coletando = true;
+        intervalo = setInterval(atualizar, 1000);
+        btn.textContent = "Parar coleta";
+        document.getElementById("status").textContent =
+          "Coletando (" + temps.length + " amostras)";
+      } else {
+        coletando = false;
+        clearInterval(intervalo);
+        intervalo = null;
+        btn.textContent = "Iniciar coleta";
+        document.getElementById("status").textContent =
+          "Coleta pausada (" + temps.length + " amostras)";
+      }
+    };
+
+    // =======================================================
+    // Cálculos estatísticos
+    // =======================================================
+    function estatisticas(temps) {
+      const n = temps.length;
+      if (n < 2) return null;
+
+      const media = temps.reduce((a, b) => a + b, 0) / n;
+      const ordenado = [...temps].sort((a, b) => a - b);
+      const mediana = ordenado[Math.floor(n / 2)];
+      const min = ordenado[0];
+      const max = ordenado[n - 1];
+      const amplitude = max - min;
+      const variancia = temps
+        .map(v => (v - media) ** 2)
+        .reduce((a, b) => a + b, 0) / (n - 1);
+      const desvio = Math.sqrt(variancia);
+      return { n, media, mediana, min, max, amplitude, desvio };
+    }
+
+    function estatisticasMR(mrs) {
+      const n = mrs.length;
+      if (n < 1) return null;
+      const media = mrs.reduce((a, b) => a + b, 0) / n;
+      const min = Math.min(...mrs);
+      const max = Math.max(...mrs);
+      return { n, media, min, max };
+    }
+
+    function conformidade(temps) {
+      const n = temps.length;
+      if (!n) {
+        return {
+          dentro: 0, acima: 0, abaixo: 0,
+          pctDentro: 0, pctAcima: 0, pctAbaixo: 0,
+          violacoes: 0
+        };
+      }
+      const dentro = temps.filter(t => t >= ESPEC_MIN && t <= ESPEC_MAX).length;
+      const acima = temps.filter(t => t > ESPEC_MAX).length;
+      const abaixo = temps.filter(t => t < ESPEC_MIN).length;
+      return {
+        dentro, acima, abaixo,
+        pctDentro: dentro / n * 100,
+        pctAcima: acima / n * 100,
+        pctAbaixo: abaixo / n * 100,
+        violacoes: acima + abaixo
+      };
+    }
+
+    function capabilidade(stats) {
+      if (stats.desvio === 0) {
+        return { Cp: null, Cpk: null, classe: "Dados insuficientes para avaliação de capacidade" };
+      }
+      const Cp = (ESPEC_MAX - ESPEC_MIN) / (6 * stats.desvio);
+      const Cpk = Math.min(
+        (ESPEC_MAX - stats.media) / (3 * stats.desvio),
+        (stats.media - ESPEC_MIN) / (3 * stats.desvio)
+      );
+
+      let classe;
+      if (Cp < 1) {
+        classe = "Processo incapaz (Cp < 1,0)";
+      } else if (Cp < 1.33) {
+        classe = "Capacidade marginal (1,0 ≤ Cp < 1,33)";
+      } else if (Cp < 1.67) {
+        classe = "Processo capaz (1,33 ≤ Cp < 1,67)";
+      } else {
+        classe = "Processo altamente capaz (Cp ≥ 1,67)";
+      }
+
+      return { Cp, Cpk, classe };
+    }
+
+    function westernElectric(temps, stats, LCL, UCL) {
+      const n = temps.length;
+      if (n < 8) return "Amostras insuficientes para aplicação das regras de Western Electric.";
+
+      const ultimo = temps[n - 1];
+
+      if (ultimo > UCL || ultimo < LCL) {
+        return "Regra 1: ponto fora dos limites de controle (UCL/LCL).";
+      }
+
+      let up = 1, down = 1;
+      for (let i = n - 6; i < n - 1; i++) {
+        if (temps[i + 1] > temps[i]) up++; else up = 1;
+        if (temps[i + 1] < temps[i]) down++; else down = 1;
+      }
+      if (up >= 6) return "Tendência crescente: 6 pontos consecutivos em subida.";
+      if (down >= 6) return "Tendência decrescente: 6 pontos consecutivos em descida.";
+
+      const ult8 = temps.slice(-8);
+      if (ult8.every(v => v > stats.media) || ult8.every(v => v < stats.media)) {
+        return "Oito pontos consecutivos do mesmo lado da média.";
+      }
+
+      return "Sem violações relevantes das regras básicas de Western Electric.";
+    }
+
+    // =======================================================
+    // Relatório CEP
+    // =======================================================
+    function gerarRelatorioTexto() {
+      if (temps.length < 3) {
+        document.getElementById("kpiMedia").textContent = "--";
+        document.getElementById("kpiDesvio").textContent = "--";
+        document.getElementById("kpiCp").textContent = "--";
+        document.getElementById("kpiCpk").textContent = "--";
+        document.getElementById("kpiDentro").textContent = "--";
+        document.getElementById("kpiStatus").textContent = "Amostras insuficientes";
+        document.getElementById("kpiMR").textContent = "--";
+        lastStats = null;
+        lastMR = null;
+        lastUCL = null;
+        lastLCL = null;
+        return "Coleta insuficiente. Gere mais amostras antes de analisar o CEP.";
+      }
+
+      const s = estatisticas(temps);
+      const c = conformidade(temps);
+      const k = capabilidade(s);
+      const mr = estatisticasMR(mrs);
+
+      const UCL = s.media + 3 * s.desvio;
+      const LCL = s.media - 3 * s.desvio;
+
+      const w = westernElectric(temps, s, LCL, UCL);
+
+      lastStats = s;
+      lastMR = mr;
+      lastUCL = UCL;
+      lastLCL = LCL;
+
+      document.getElementById("kpiMedia").textContent = s.media.toFixed(2);
+      document.getElementById("kpiDesvio").textContent = s.desvio.toFixed(3);
+      document.getElementById("kpiCp").textContent = k.Cp?.toFixed(2) ?? "N/A";
+      document.getElementById("kpiCpk").textContent = k.Cpk?.toFixed(2) ?? "N/A";
+      document.getElementById("kpiDentro").textContent = c.pctDentro.toFixed(1);
+      document.getElementById("kpiMR").textContent = mr ? mr.media.toFixed(3) : "--";
+
+      let statusTexto;
+      if (c.pctDentro > 95) {
+        statusTexto = "Processo estável em relação à especificação.";
+      } else if (c.pctDentro > 80) {
+        statusTexto = "Processo aceitável, porém requer monitoramento.";
+      } else {
+        statusTexto = "Processo fora do nível desejado de conformidade.";
+      }
+      document.getElementById("kpiStatus").textContent = statusTexto;
+
+      return `
+RELATÓRIO DE CONTROLE ESTATÍSTICO DE PROCESSO 
+
+1) Especificação do produto
+   • Limites de especificação: ${ESPEC_MIN.toFixed(2)} °C a ${ESPEC_MAX.toFixed(2)} °C
+
+2) Estatísticas do processo (Carta X / Individual)
+   • Número de leituras: ${s.n}
+   • Média (X̄): ${s.media.toFixed(2)} °C
+   • Mediana: ${s.mediana.toFixed(2)} °C
+   • Mínimo / Máximo: ${s.min.toFixed(2)} °C / ${s.max.toFixed(2)} °C
+   • Amplitude (máx - mín): ${s.amplitude.toFixed(2)} °C
+   • Desvio padrão amostral (σ): ${s.desvio.toFixed(3)} °C
+
+3) Limites de controle estatísticos (Carta X)
+   • UCL = X̄ + 3σ = ${UCL.toFixed(2)} °C
+   • LCL = X̄ - 3σ = ${LCL.toFixed(2)} °C
+
+4) Carta MR (Amplitude Móvel)
+${mr ? `   • Número de valores de MR: ${mr.n}
+   • MR médio: ${mr.media.toFixed(3)} °C
+   • MR mínimo / máximo: ${mr.min.toFixed(3)} °C / ${mr.max.toFixed(3)} °C
+` : `   • Amostras insuficientes para análise de MR.
+`}
+
+5) Conformidade em relação à especificação
+   • Leituras dentro da faixa especificada: ${c.pctDentro.toFixed(1)} %
+   • Leituras acima da especificação: ${c.pctAcima.toFixed(1)} %
+   • Leituras abaixo da especificação: ${c.pctAbaixo.toFixed(1)} %
+   • Total de violações (fora da faixa): ${c.violacoes}
+
+6) Capacidade do processo (Cp / Cpk)
+   • Cp: ${k.Cp?.toFixed(2) ?? "N/A"}
+   • Cpk: ${k.Cpk?.toFixed(2) ?? "N/A"}
+   • Interpretação: ${k.classe}
+
+7) Avaliação pelas regras de Western Electric
+   • Resultado: ${w}
+
+8) Síntese
+   • Situação em relação à especificação: ${statusTexto}
+
+Data/hora da análise: ${new Date().toLocaleString("pt-BR")}
+`;
+    }
+
+    // =======================================================
+    // Gráficos (Carta X e MR)
+    // =======================================================
+    let chartX = null;
+    let chartMR = null;
+
+    function initCharts() {
+      const ctxX = document.getElementById("chartX").getContext("2d");
+      const ctxMR = document.getElementById("chartMR").getContext("2d");
+
+      chartX = new Chart(ctxX, {
+        type: "line",
+        data: {
+          labels: [],
+          datasets: [
+            {
+              label: "Temperatura (°C)",
+              data: [],
+              borderWidth: 1.5,
+              pointRadius: 2,
+              tension: 0.1
+            },
+            {
+              label: "Média (X̄)",
+              data: [],
+              borderWidth: 1,
+              pointRadius: 0,
+              borderDash: [6, 4],
+              tension: 0
+            },
+            {
+              label: "UCL",
+              data: [],
+              borderWidth: 1,
+              pointRadius: 0,
+              borderDash: [4, 4],
+              tension: 0
+            },
+            {
+              label: "LCL",
+              data: [],
+              borderWidth: 1,
+              pointRadius: 0,
+              borderDash: [4, 4],
+              tension: 0
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            legend: { display: true }
+          },
+          scales: {
+            x: { title: { display: true, text: "Ordem da leitura" } },
+            y: { title: { display: true, text: "Temperatura (°C)" } }
+          }
+        }
+      });
+
+      chartMR = new Chart(ctxMR, {
+        type: "line",
+        data: {
+          labels: [],
+          datasets: [
+            {
+              label: "MR (|Xi − Xi-1|)",
+              data: [],
+              borderWidth: 1.5,
+              pointRadius: 2,
+              tension: 0.1
+            },
+            {
+              label: "MR médio",
+              data: [],
+              borderWidth: 1,
+              pointRadius: 0,
+              borderDash: [6, 4],
+              tension: 0
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            legend: { display: true }
+          },
+          scales: {
+            x: { title: { display: true, text: "Ordem da leitura (MR)" } },
+            y: { title: { display: true, text: "Amplitude móvel (°C)" } }
+          }
+        }
+      });
+    }
+
+    function updateCharts() {
+      if (!lastStats || temps.length < 2) return;
+      if (!chartX || !chartMR) {
+        initCharts();
+      }
+
+      const labelsX = temps.map((_, i) => i + 1);
+      const mediaArr = labelsX.map(() => lastStats.media);
+      const uclArr = labelsX.map(() => lastUCL);
+      const lclArr = labelsX.map(() => lastLCL);
+
+      chartX.data.labels = labelsX;
+      chartX.data.datasets[0].data = temps;
+      chartX.data.datasets[1].data = mediaArr;
+      chartX.data.datasets[2].data = uclArr;
+      chartX.data.datasets[3].data = lclArr;
+      chartX.update();
+
+      const labelsMR = mrs.map((_, i) => i + 1);
+      chartMR.data.labels = labelsMR;
+      chartMR.data.datasets[0].data = mrs;
+
+      if (lastMR) {
+        const mrMeanArr = labelsMR.map(() => lastMR.media);
+        chartMR.data.datasets[1].data = mrMeanArr;
+      } else {
+        chartMR.data.datasets[1].data = [];
+      }
+      chartMR.update();
+    }
+
+    document.getElementById("btnRelatorio").onclick = () => {
+      const txt = gerarRelatorioTexto();
+      document.getElementById("relatorio").textContent = txt;
+      updateCharts();
+    };
+  </script>
+</body>
+</html>
