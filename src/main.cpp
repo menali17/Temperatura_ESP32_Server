@@ -95,8 +95,8 @@ void handleNotFound() {
 }
 
 // -------------------- WIFI --------------------
-const char* WIFI_SSID = "Nome Da Rede";       
-const char* WIFI_PASS = "Senha da rede";      
+const char* WIFI_SSID = "VIVOFIBRA-CB2C";       
+const char* WIFI_PASS = "Cvw6SdqJCZ";      
 
 void setup() {
   Serial.begin(115200);

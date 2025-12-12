@@ -174,6 +174,37 @@
       color: var(--text-muted);
       margin-top: 4px;
     }
+
+    .table-wrapper {
+      margin-top: 8px;
+      max-height: 180px;
+      overflow-y: auto;
+      border-radius: 8px;
+      border: 1px solid var(--border-soft);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.75rem;
+    }
+
+    th, td {
+      padding: 4px 6px;
+      text-align: center;
+      border-bottom: 1px solid #0b1220;
+    }
+
+    th {
+      background: #020617;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+
+    tr:nth-child(even) td {
+      background: #020617;
+    }
   </style>
 
   <script src="/chart.umd.min.js"></script>
@@ -211,6 +242,42 @@
     </div>
 
     <div class="box">
+      <div class="box-title">Arranjos de Produção (Lotes)</div>
+      <div class="kpi-line">
+        Tamanho do lote: <span id="tamLoteLabel">20</span> medições
+      </div>
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Lote</th>
+              <th>Boas</th>
+              <th>Def.</th>
+              <th>Yield (%)</th>
+              <th>Defeito (%)</th>
+            </tr>
+          </thead>
+          <tbody id="tabelaLotesBody">
+            <!-- preenchido via JS -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="box">
+      <div class="box-title">Probabilidades do Processo</div>
+      <div class="kpi-line">
+        Prob. peça defeituosa (p): <span id="probPecaDef">--</span> %
+      </div>
+      <div class="kpi-line">
+        Prob. lote perfeito (0 defeitos): <span id="probLotePerfeito">--</span> %
+      </div>
+      <div class="kpi-line">
+        Prob. lote com ≥ 1 defeito: <span id="probLoteComDefeito">--</span> %
+      </div>
+    </div>
+
+    <div class="box">
       <div class="charts-container-title">Gráficos de controle (Carta X e MR)</div>
       <div style="margin-top:8px;">
         <canvas id="chartX" height="180"></canvas>
@@ -220,6 +287,16 @@
       </div>
       <div class="status-text">
         Gere o relatório para atualizar limites de controle e curvas.
+      </div>
+    </div>
+
+    <div class="box">
+      <div class="box-title">Função Densidade de Probabilidade (Temperatura)</div>
+      <div class="status-text">
+        Distribuição empírica das temperaturas em faixas de 1 °C.
+      </div>
+      <div style="margin-top:8px;">
+        <canvas id="graficoFDP" height="150"></canvas>
       </div>
     </div>
 
@@ -244,11 +321,21 @@
     let coletando = false;
     let intervalo = null;
 
-    // Para gráficos
+    // Para gráficos CEP
     let lastStats = null;
     let lastMR = null;
     let lastUCL = null;
     let lastLCL = null;
+
+    
+    const TAM_LOTE = 20;
+    let loteAtual = [];
+    let lotes = [];
+
+    // NOVO: histórico para FDP
+    let historicoFDP = [];
+    const MAX_HIST_FDP = 200;
+    let chartFDP = null;
 
     async function atualizar() {
       try {
@@ -279,6 +366,10 @@
         document.getElementById("status").textContent =
           "Coletando (" + temps.length + " amostras)";
 
+        // NOVO: alimentar arranjos de produção e FDP
+        registrarMedicaoProducao(t);
+        registrarTemperaturaFDP(t);
+
       } catch (e) {
         document.getElementById("status").textContent = "Falha na leitura";
       }
@@ -302,9 +393,7 @@
       }
     };
 
-    // =======================================================
-    // Cálculos estatísticos
-    // =======================================================
+   
     function estatisticas(temps) {
       const n = temps.length;
       if (n < 2) return null;
@@ -402,6 +491,199 @@
       return "Sem violações relevantes das regras básicas de Western Electric.";
     }
 
+   
+    function registrarMedicaoProducao(temp) {
+      loteAtual.push(temp);
+
+      if (loteAtual.length === TAM_LOTE) {
+        const n_ok = loteAtual.filter(
+          t => t >= ESPEC_MIN && t <= ESPEC_MAX
+        ).length;
+        const n_def = TAM_LOTE - n_ok;
+        const yieldLote = n_ok / TAM_LOTE;
+        const taxaDefeito = n_def / TAM_LOTE;
+
+        const numeroLote = lotes.length + 1;
+        lotes.push({
+          numero: numeroLote,
+          n_ok: n_ok,
+          n_def: n_def,
+          yield: yieldLote,
+          taxaDefeito: taxaDefeito
+        });
+
+        loteAtual = [];
+
+        atualizarTabelaLotes();
+        atualizarProbabilidadesGlobais();
+      }
+    }
+
+    function atualizarTabelaLotes() {
+      const tbody = document.getElementById("tabelaLotesBody");
+      tbody.innerHTML = "";
+
+      lotes.forEach(lote => {
+        const tr = document.createElement("tr");
+
+        const tdNum = document.createElement("td");
+        tdNum.textContent = lote.numero;
+
+        const tdOk = document.createElement("td");
+        tdOk.textContent = lote.n_ok;
+
+        const tdDef = document.createElement("td");
+        tdDef.textContent = lote.n_def;
+
+        const tdYield = document.createElement("td");
+        tdYield.textContent = (lote.yield * 100).toFixed(1);
+
+        const tdDefeito = document.createElement("td");
+        tdDefeito.textContent = (lote.taxaDefeito * 100).toFixed(1);
+
+        tr.appendChild(tdNum);
+        tr.appendChild(tdOk);
+        tr.appendChild(tdDef);
+        tr.appendChild(tdYield);
+        tr.appendChild(tdDefeito);
+
+        tbody.appendChild(tr);
+      });
+
+      const tamLabel = document.getElementById("tamLoteLabel");
+      if (tamLabel) tamLabel.textContent = String(TAM_LOTE);
+    }
+
+    
+    function calcularPGlobal() {
+      const totalLotes = lotes.length;
+      if (totalLotes === 0) return 0;
+
+      const totalDef = lotes.reduce((acc, l) => acc + l.n_def, 0);
+      const totalPecas = totalLotes * TAM_LOTE;
+      if (totalPecas === 0) return 0;
+
+      return totalDef / totalPecas; // prob. estimada de defeito
+    }
+
+    function atualizarProbabilidadesGlobais() {
+      const p = calcularPGlobal();
+      const spanPeca = document.getElementById("probPecaDef");
+      const spanLotePerf = document.getElementById("probLotePerfeito");
+      const spanLoteDef = document.getElementById("probLoteComDefeito");
+
+      if (!spanPeca || !spanLotePerf || !spanLoteDef) return;
+
+      if (p === 0 || lotes.length === 0) {
+        spanPeca.textContent = "--";
+        spanLotePerf.textContent = "--";
+        spanLoteDef.textContent = "--";
+        return;
+      }
+
+      const probLotePerfeito = Math.pow(1 - p, TAM_LOTE);
+      const probLoteComDefeito = 1 - probLotePerfeito;
+
+      spanPeca.textContent = (p * 100).toFixed(2);
+      spanLotePerf.textContent = (probLotePerfeito * 100).toFixed(2);
+      spanLoteDef.textContent = (probLoteComDefeito * 100).toFixed(2);
+    } 
+         
+      // Reconstrói os lotes a partir de TODAS as leituras de temperatura
+  function construirLotesParaRelatorio() {
+    const lotesRel = [];
+    const nTotal = temps.length;
+
+    for (let i = 0; i + TAM_LOTE <= nTotal; i += TAM_LOTE) {
+      const bloco = temps.slice(i, i + TAM_LOTE);
+      const n_ok = bloco.filter(t => t >= ESPEC_MIN && t <= ESPEC_MAX).length;
+      const n_def = TAM_LOTE - n_ok;
+      const yieldLote = n_ok / TAM_LOTE;
+      const taxaDefeito = n_def / TAM_LOTE;
+
+      lotesRel.push({
+        numero: lotesRel.length + 1,
+        n_ok,
+        n_def,
+        yield: yieldLote,
+        taxaDefeito
+      });
+    }
+
+    return lotesRel;
+  }
+
+
+    
+    function registrarTemperaturaFDP(temp) {
+      historicoFDP.push(temp);
+      if (historicoFDP.length > MAX_HIST_FDP) {
+        historicoFDP.shift();
+      }
+      atualizarFDP();
+    }
+
+    function calcularFDP(dados, min, max, binSize) {
+      const bins = [];
+      const contagem = [];
+
+      for (let v = min; v < max; v += binSize) {
+        bins.push(v.toFixed(0) + "–" + (v + binSize).toFixed(0));
+        contagem.push(0);
+      }
+
+      dados.forEach(temp => {
+        const idx = Math.floor((temp - min) / binSize);
+        if (idx >= 0 && idx < contagem.length) {
+          contagem[idx]++;
+        }
+      });
+
+      const total = dados.length || 1;
+      const fdp = contagem.map(c => c / total);
+      return { bins: bins, fdp: fdp };
+    }
+
+    function atualizarFDP() {
+      if (historicoFDP.length < 5) return;
+
+      const min = ESPEC_MIN - 5;
+      const max = ESPEC_MAX + 5;
+      const binSize = 1;
+
+      const res = calcularFDP(historicoFDP, min, max, binSize);
+      const ctx = document.getElementById("graficoFDP").getContext("2d");
+
+      if (chartFDP) {
+        chartFDP.destroy();
+      }
+
+      chartFDP = new Chart(ctx, {
+        type: "bar",
+        data: {
+          labels: res.bins,
+          datasets: [{
+            label: "FDP (proporção por faixa)",
+            data: res.fdp,
+            borderWidth: 1
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            legend: { display: true }
+          },
+          scales: {
+            x: { title: { display: true, text: "Faixas de temperatura (°C)" } },
+            y: {
+              title: { display: true, text: "FDP (proporção)" },
+              beginAtZero: true
+            }
+          }
+        }
+      });
+    }
+
     // =======================================================
     // Relatório CEP
     // =======================================================
@@ -453,6 +735,8 @@
       }
       document.getElementById("kpiStatus").textContent = statusTexto;
 
+      atualizarProbabilidadesGlobais();
+
       return `
 RELATÓRIO DE CONTROLE ESTATÍSTICO DE PROCESSO 
 
@@ -492,7 +776,20 @@ ${mr ? `   • Número de valores de MR: ${mr.n}
 7) Avaliação pelas regras de Western Electric
    • Resultado: ${w}
 
-8) Síntese
+8) Arranjos de produção e probabilidade
+   • Tamanho do lote considerado: ${TAM_LOTE} peças (leituras)
+   • Número de lotes analisados: ${lotes.length}
+   • Probabilidade estimada de peça defeituosa (p): ${
+         (calcularPGlobal() * 100).toFixed(2)
+       } %
+   • Probabilidade de lote perfeito (0 defeitos): ${
+         (lotes.length > 0 ? Math.pow(1 - calcularPGlobal(), TAM_LOTE) * 100 : 0).toFixed(2)
+       } %
+   • Probabilidade de lote com ≥ 1 defeito: ${
+         (lotes.length > 0 ? (1 - Math.pow(1 - calcularPGlobal(), TAM_LOTE)) * 100 : 0).toFixed(2)
+       } %
+
+9) Síntese
    • Situação em relação à especificação: ${statusTexto}
 
 Data/hora da análise: ${new Date().toLocaleString("pt-BR")}
